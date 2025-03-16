@@ -1,4 +1,5 @@
 // pages/api/polymarketProxy.js
+
 export default async function handler(req, res) {
   // 允许跨域访问
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -12,20 +13,33 @@ export default async function handler(req, res) {
 
   // 获取查询参数
   const { address } = req.query;
-
   if (!address) {
     return res.status(400).json({ error: "缺少 address 参数" });
   }
 
+  // 目标 API
   const url = `https://layerhub.xyz/be-api/protocol_wallets/polymarket/${address}`;
+  const controller = new AbortController(); // 控制请求
+  const timeout = setTimeout(() => controller.abort(), 9000); // 9 秒超时
+
+  // **缓存策略**（减少不必要的 API 请求）
+  const cache = new Map();
+  if (cache.has(address)) {
+    console.log(`[CACHE HIT] ${address}`);
+    return res.status(200).json(cache.get(address));
+  }
 
   try {
-    // 请求第三方接口
-    const response = await fetch(url);
+    console.log(`[FETCH] ${url}`);
+
+    // 发送 API 请求
+    const response = await fetch(url, { signal: controller.signal });
+
+    clearTimeout(timeout); // 成功返回，取消超时
     if (!response.ok) {
       return res.status(response.status).json({ error: `第三方 API 请求失败: ${response.statusText}` });
     }
-    
+
     const data = await response.json();
 
     // 解析交易次数
@@ -44,7 +58,7 @@ export default async function handler(req, res) {
     // 获取最后活跃时间
     const lastUseStr = data?.widget?.data?.lastUse || "";
     let daysAgo = "未知";
-    
+
     if (lastUseStr) {
       const lastUseDate = new Date(lastUseStr);
       if (!isNaN(lastUseDate.getTime())) {
@@ -55,18 +69,29 @@ export default async function handler(req, res) {
       }
     }
 
-    // 返回最终数据
-    return res.status(200).json({
+    // 结果数据
+    const result = {
       address,
       transaction_count: transactionCount,
       active_days: activeDays,
-      top_percent: topPercent.toFixed(2), // 确保保留两位小数
+      top_percent: topPercent.toFixed(2),
       last_use: lastUseStr,
       days_ago: daysAgo,
-    });
+    };
+
+    // **缓存 5 分钟**
+    cache.set(address, result);
+    setTimeout(() => cache.delete(address), 300000); // 5 分钟后清除缓存
+
+    console.log(`[SUCCESS] ${address}`);
+    return res.status(200).json(result);
 
   } catch (error) {
-    console.error("API 请求出错:", error);
+    if (error.name === "AbortError") {
+      console.error(`[TIMEOUT] ${address}`);
+      return res.status(504).json({ error: "请求超时（API 响应太慢）" });
+    }
+    console.error(`[ERROR] ${address}:`, error);
     return res.status(500).json({ error: "服务器内部错误" });
   }
 }
