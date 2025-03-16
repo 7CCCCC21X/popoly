@@ -1,96 +1,167 @@
-import { useState } from "react";
-
-export default function Home() {
-  const [addresses, setAddresses] = useState("");
-  const [results, setResults] = useState([]);
-
-  async function handleFetch() {
-    // 将用户输入的文本行分割为数组
-    const addressList = addresses
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    if (addressList.length === 0) {
-      alert("请先输入地址！");
-      return;
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>批量查询示例</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 20px;
     }
+    textarea {
+      width: 300px;
+      height: 120px;
+      display: block;
+    }
+    button {
+      margin: 10px 0;
+      padding: 6px 12px;
+      cursor: pointer;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 20px;
+    }
+    th, td {
+      border: 1px solid #ccc;
+      padding: 8px;
+      text-align: left;
+    }
+    th {
+      background: #f8f8f8;
+    }
+  </style>
+</head>
+<body>
+  <h1>批量查询示例</h1>
+  <p>在下面的文本框中输入地址，一行一个，然后点击“查询”即可：</p>
 
-    const allResults = [];
+  <textarea id="addressList" placeholder="每行一个地址，如：\n0xB0450D684D21f57f8A422F5a2d77bf08e345d8bC"></textarea>
+  <button id="fetchBtn">查询</button>
 
-    for (const addr of addressList) {
+  <table id="resultTable" style="display: none;">
+    <thead>
+      <tr>
+        <th>地址</th>
+        <th>交易次数</th>
+        <th>活跃天数</th>
+        <th>排名百分比</th>
+        <th>最后活跃时间</th>
+        <th>距离今天</th>
+      </tr>
+    </thead>
+    <tbody>
+    </tbody>
+  </table>
+
+  <script>
+    // 将后端部署到 Vercel 的域名 + 路由放在这里
+    const PROXY_API_URL = "https://popoly-7tn1u7try-7ccccc21xs-projects.vercel.app/api/polymarketProxy";
+
+    async function fetchWalletInfo(address) {
+      const url = `${PROXY_API_URL}?address=${encodeURIComponent(address.trim())}`;
+
       try {
-        // 调用我们自己的后端API而不是第三方
-        // 这里假设你的 API 路由叫 /api/polymarketProxy
-        const res = await fetch(`/api/polymarketProxy?address=${addr}`);
-        const data = await res.json();
-        allResults.push(data);
+        const response = await fetch(url);
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const data = await response.json();
+
+        return {
+          address: data?.address ?? address,
+          transaction_count: data?.transaction_count ?? 0,
+          active_days: data?.active_days ?? 0,
+          top_percent: data?.top_percent ?? 0,
+          last_use: data?.last_use || "",
+          days_ago: data?.days_ago || ""
+        };
       } catch (error) {
-        console.error("查询失败：", error);
-        allResults.push({ address: addr, error: "查询失败" });
+        console.error(`查询地址 ${address} 失败：`, error);
+        return {
+          address: address,
+          transaction_count: null,
+          active_days: null,
+          top_percent: null,
+          last_use: null,
+          days_ago: null
+        };
       }
     }
 
-    setResults(allResults);
-  }
+    async function batchFetchWalletInfo(addresses) {
+      const results = [];
+      for (const addr of addresses) {
+        if (addr.trim()) {
+          const info = await fetchWalletInfo(addr);
+          results.push(info);
+        }
+      }
+      return results;
+    }
 
-  return (
-    <div style={{ padding: 20 }}>
-      <h1>批量查询示例 (Next.js + Vercel)</h1>
-      <p>每行输入一个地址，然后点击查询：</p>
-      <textarea
-        style={{ width: 300, height: 120 }}
-        value={addresses}
-        onChange={(e) => setAddresses(e.target.value)}
-      />
-      <br />
-      <button onClick={handleFetch}>查询</button>
+    document.getElementById("fetchBtn").addEventListener("click", async () => {
+      const addressText = document.getElementById("addressList").value;
+      // 按行分割用户输入
+      const addressArray = addressText.split("\n").map(line => line.trim()).filter(Boolean);
 
-      <table
-        style={{
-          marginTop: 20,
-          width: "100%",
-          borderCollapse: "collapse",
-          border: "1px solid #ccc",
-        }}
-      >
-        <thead>
-          <tr style={{ background: "#f8f8f8" }}>
-            <th style={{ border: "1px solid #ccc", padding: "8px" }}>地址</th>
-            <th style={{ border: "1px solid #ccc", padding: "8px" }}>交易次数</th>
-            <th style={{ border: "1px solid #ccc", padding: "8px" }}>活跃天数</th>
-            <th style={{ border: "1px solid #ccc", padding: "8px" }}>排名百分比</th>
-            <th style={{ border: "1px solid #ccc", padding: "8px" }}>最后活跃时间</th>
-            <th style={{ border: "1px solid #ccc", padding: "8px" }}>距离今天</th>
-          </tr>
-        </thead>
-        <tbody>
-          {results.map((item, i) => {
-            return (
-              <tr key={i}>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>{item.address}</td>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>
-                  {item.transaction_count ?? "N/A"}
-                </td>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>
-                  {item.active_days ?? "N/A"}
-                </td>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>
-                  {item.top_percent !== undefined
-                    ? item.top_percent.toFixed(4) + "%"
-                    : "N/A"}
-                </td>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>
-                  {item.last_use || "N/A"}
-                </td>
-                <td style={{ border: "1px solid #ccc", padding: "8px" }}>
-                  {item.days_ago || ""}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
+      if (addressArray.length === 0) {
+        alert("请先输入地址！");
+        return;
+      }
+
+      // 批量查询
+      const allResults = await batchFetchWalletInfo(addressArray);
+
+      // 显示结果
+      const table = document.getElementById("resultTable");
+      const tbody = table.querySelector("tbody");
+      tbody.innerHTML = ""; // 先清空
+      table.style.display = "table"; // 显示表格
+
+      allResults.forEach(item => {
+        const tr = document.createElement("tr");
+
+        // 地址
+        const tdAddress = document.createElement("td");
+        tdAddress.textContent = item.address;
+        tr.appendChild(tdAddress);
+
+        // 交易次数
+        const tdTransactionCount = document.createElement("td");
+        tdTransactionCount.textContent = item.transaction_count !== null ? item.transaction_count : "查询失败";
+        tr.appendChild(tdTransactionCount);
+
+        // 活跃天数
+        const tdActiveDays = document.createElement("td");
+        tdActiveDays.textContent = item.active_days !== null ? item.active_days : "查询失败";
+        tr.appendChild(tdActiveDays);
+
+        // 排名百分比
+        const tdTopPercent = document.createElement("td");
+        if (item.top_percent !== null) {
+          // 留意 top_percent 是否已经是百分比形式，如需四舍五入可自行调整
+          const percentVal = parseFloat(item.top_percent).toFixed(4) + "%";
+          tdTopPercent.textContent = percentVal;
+        } else {
+          tdTopPercent.textContent = "查询失败";
+        }
+        tr.appendChild(tdTopPercent);
+
+        // 最后活跃时间
+        const tdLastUse = document.createElement("td");
+        tdLastUse.textContent = item.last_use || "未知";
+        tr.appendChild(tdLastUse);
+
+        // 距离今天
+        const tdDaysAgo = document.createElement("td");
+        tdDaysAgo.textContent = item.days_ago || "";
+        tr.appendChild(tdDaysAgo);
+
+        tbody.appendChild(tr);
+      });
+    });
+  </script>
+</body>
+</html>
